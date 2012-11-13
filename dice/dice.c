@@ -9,7 +9,7 @@
 //	 seconds). A congratulatory ditty is played when doubles are rolled. If
 //	 doubles are rolled twice in a row, output a raspberry tone. Write an
 //	 assembly language function which returns a random number from 1 to 6 and
-//	 call this function from your C program." 
+//	 call this function from your C program."
 //
 //  Author:		Paul Roper, Brigham Young University
 //	Revisions:	March 2010	Original code
@@ -43,20 +43,30 @@
 //******************************************************************************
 // includes
 #include "msp430x22x4.h"
-#include "dice.h"
 #include <stdlib.h>
 #include "RBX430-1.h"
 #include "RBX430_lcd.h"
 
+//------------------------------------------------------------------------------
+// defined constants
+#define myCLOCK			8000000			// 1.2 Mhz clock
+#define	WDT_CTL			WDT_MDLY_32		// WD configuration (Timer, SMCLK, ~32 ms)
+#define WDT_CPI			32000			// WDT Clocks Per Interrupt (@1 Mhz)
+#define	WDT_1SEC_CNT	myCLOCK/WDT_CPI	// WDT counts/second (32 ms)
+#define	LCD_8_SEC	    8*(myCLOCK/WDT_CPI)	// WDT counts/second (32 ms)
+
+#define BEEP			1000			// beep frequency
+#define BEEP_CNT		5				// beep duration
+
 //-----------------------------------------------------------
 //	external/internal prototypes
 extern int rand16(void);				// get random #
-extern int rand6(void);				// get random #
+extern int rand6(void);
 
 void WDT_sleep(uint16 delay);				// WDT sleep routine
-uint8 get_switch(uint8 swMask);
 void doTone(uint16 tone, uint16 time);		// output tone
 void drawDie(uint8 die, uint8* old_die, int16 x, int16 y);
+void roll();
 
 extern const uint8 byu_image[];
 
@@ -65,13 +75,12 @@ extern const uint8 byu_image[];
 volatile int WDT_Sec_Cnt;				// WDT second counter
 volatile int WDT_Delay;					// WDT delay counter
 volatile int WDT_Tone_Cnt;				// WDT tone counter
+volatile int LCD_COUNT = 0;
 
 //-----------------------------------------------------------
 //	main
 void main(void)
 {
-	uint8 myDie, oldDie = 0;
-
 	RBX430_init(_8MHZ);					// init board
 	lcd_init();							// init LCD
 
@@ -92,58 +101,57 @@ void main(void)
 
 	lcd_clear();						// clear LCD
 	lcd_image(byu_image, (160-91)/2, 120);
-	lcd_rectangle(50, 51, 60, 60, 1);	// draw double die frame
-	lcd_rectangle(51, 52, 58, 58, 1);
-
+	//void lcd_rectangle(int16 x, int16 y, uint16 w, uint16 h, uint8 pen)
+	lcd_rectangle(10, 50, 60, 60, 1);	// draw double die frame
+	lcd_rectangle(80, 50, 60, 60, 1);
+	lcd_cursor(10, 20);				// position message
+	lcd_printf("Press Any Switch!");
 
 	lcd_mode(LCD_2X_FONT | LCD_PROPORTIONAL);
 
-	while (1)							// repeat forever
+
+
+	while (1)					// repeat forever
 	{
-		myDie = (rand16() % 6) + 1;		// get a random die (1-6)
+		while ((P1IN & 0x0f) != 0x0f)
+		{
+			LCD_COUNT = LCD_8_SEC;
+			lcd_backlight(ON);
+			roll();
 
-		rand6();
-		rand6();
-		rand6();
-		rand6();
-
-		uint8 switchNum = 0;
-		switchNum = get_switch(0x0f);
-		lcd_clear();
-		lcd_cursor(10, 20);				// position message
-		lcd_printf("Press Switch");
-
-
-
-		uint8 switchNum2 = 0;
-
-
-		lcd_cursor(10, 20);				// position message
-		lcd_printf("Hello World %d ", myDie);
-		lcd_backlight(ON);				// turn on LCD
-		doTone(BEEP, BEEP_CNT);			// output BEEP
-		drawDie(myDie, &oldDie, 57, 57);// draw a die
-		WDT_sleep(80);					// delay
-		lcd_backlight(OFF);				// turn off LCD
-		WDT_sleep(2);					// short delay
+		}
 	}
 } // end main()
 
 
-uint8 get_switch(uint8 swMask)
+void roll()
 {
-   uint8 mySwitch;
-   uint16 delay = DB_DELAY;
+	uint8 die1, die2, oldDie, oldDie2 = 0;
 
-   while ((P1IN & 0x0f) != 0x0f);    // wait for all switches off
-   while (delay--)
-   {
-	  // reset count if switch not pressed
-	  mySwitch = (P1IN & 0x0f) ^ 0x0f;
-	  if ((mySwitch & swMask) == 0) delay = DB_DELAY;
-   };
-   return mySwitch;
+	lcd_clear();						// clear LCD
+
+	lcd_rectangle(10, 50, 60, 60, 1);	// draw double die frame
+	lcd_rectangle(80, 50, 60, 60, 1);
+
+	int i;
+    for(i = 0; i < 70; i += 5)
+    {
+    	die1 = rand6();
+		die2 = rand6();
+		doTone(BEEP, BEEP_CNT);			// output BEEP
+		drawDie(die1, &oldDie, 18, 57); // draw a die
+		drawDie(die2, &oldDie2, 87, 57); // draw a die
+		lcd_backlight(ON);
+		if((P1IN & 0x0f) != 0x0f)
+		    	roll();
+		WDT_sleep(i);
+		lcd_backlight(OFF);
+		WDT_sleep(i);
+    }
+
+    lcd_backlight(ON);
 }
+
 
 //------------------------------------------------------------------------------
 //   output tone subroutine
@@ -238,6 +246,11 @@ __interrupt void WDT_ISR(void)
 	if (WDT_Tone_Cnt && (--WDT_Tone_Cnt == 0))
 	{
 		TBCCR0 = 0;
+	}
+
+	if (--LCD_COUNT == 0)
+	{
+		lcd_backlight(OFF);
 	}
 
 	if (--WDT_Sec_Cnt == 0)

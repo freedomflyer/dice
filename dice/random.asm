@@ -101,7 +101,7 @@ rand16:
 ;			random seed updated
 ;
 rand6:
-		call #rand16
+		call 	#rand16
 		and.w   #0x0005, r12	; Modulus: get 0,1,2 or 3 from the random generator
 		add.w   #0x01, r12
 		ret							; Random number in Rndnum
